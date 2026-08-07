@@ -10,40 +10,45 @@ const WHATSAPP_NUMBER = "59173148844"; // 591 + tu número, sin espacios ni +
 
 let supabase = null;
 try {
-  if (SUPABASE_URL.startsWith("http")) {
+  if (SUPABASE_URL.startsWith("http") && window.supabase) {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }
 } catch (e) {
   console.warn("Supabase no configurado todavía:", e);
+  supabase = null;
 }
 
-// Productos de respaldo por si Supabase aún no está conectado
+// Productos de respaldo (se usan si Supabase no está conectado aún)
 const FALLBACK_PRODUCTS = [
-  { id: "1", nombre: "Chantillí Clásico", descripcion: "Crema batida fresca con gelatina de colores, la receta paceña de siempre.", precio: 5, categoria: "chantilli", imagen_emoji: "🍨" },
-  { id: "2", nombre: "Chantillí con Chocolate", descripcion: "Nuestro clásico con lluvia de chocolate por encima.", precio: 7, categoria: "chantilli", imagen_emoji: "🍫" },
-  { id: "3", nombre: "Chantillí con Oreo", descripcion: "Crema batida con trocitos de galleta Oreo crocante.", precio: 7, categoria: "chantilli", imagen_emoji: "🍪" },
-  { id: "4", nombre: "Batido Crema-Coca Cola", descripcion: "Crema de leche batida con Coca-Cola bien helada.", precio: 6, categoria: "batido", imagen_emoji: "🥤" },
-  { id: "5", nombre: "Batido Crema-Malta", descripcion: "Crema de leche batida con Malta, dulce y espumoso.", precio: 6, categoria: "batido", imagen_emoji: "🧋" },
-  { id: "6", nombre: "Combo Chanti", descripcion: "Un Chantillí clásico + un Batido a elección.", precio: 10, categoria: "combo", imagen_emoji: "🎉" },
+  { id: "1", nombre: "Chantillí Clásico", descripcion: "Crema batida fresca con gelatina de colores, la receta paceña de siempre.", precio: 5, categoria: "chantilli", imagen_url: "https://images.unsplash.com/photo-1646388022965-2bfa12635f01?auto=format&fit=crop&w=500&q=80" },
+  { id: "2", nombre: "Chantillí con Chocolate", descripcion: "Nuestro clásico con lluvia de chocolate por encima.", precio: 7, categoria: "chantilli", imagen_url: "https://images.unsplash.com/photo-1545396635-c83eba7be00f?auto=format&fit=crop&w=500&q=80" },
+  { id: "3", nombre: "Chantillí con Oreo", descripcion: "Crema batida con trocitos de galleta Oreo crocante.", precio: 7, categoria: "chantilli", imagen_url: "https://images.unsplash.com/photo-1623728720458-8c2f5a9dc13c?auto=format&fit=crop&w=500&q=80" },
+  { id: "4", nombre: "Batido Crema-Coca Cola", descripcion: "Crema de leche batida con Coca-Cola bien helada.", precio: 6, categoria: "batido", imagen_url: "https://images.unsplash.com/photo-1574706226623-e5cc0da928c6?auto=format&fit=crop&w=500&q=80" },
+  { id: "5", nombre: "Batido Crema-Malta", descripcion: "Crema de leche batida con Malta, dulce y espumoso.", precio: 6, categoria: "batido", imagen_url: "https://images.unsplash.com/photo-1583024012457-b6de05b7003a?auto=format&fit=crop&w=500&q=80" },
+  { id: "6", nombre: "Combo Chanti", descripcion: "Un Chantillí clásico + un Batido a elección.", precio: 10, categoria: "combo", imagen_url: "https://images.unsplash.com/photo-1646388022965-2bfa12635f01?auto=format&fit=crop&w=500&q=80" },
 ];
 
 let products = [];
 let cart = {}; // { productId: { ...product, qty } }
 let currentFilter = "todos";
 
-// ---------- Cargar productos ----------
+// ---------- Cargar productos (SIEMPRE termina en fallback si algo falla) ----------
 async function loadProducts() {
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("productos")
-      .select("*")
-      .eq("disponible", true)
-      .order("orden", { ascending: true });
-    if (!error && data && data.length) {
-      products = data;
-      renderProducts();
-      return;
+  try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("productos")
+        .select("*")
+        .eq("disponible", true)
+        .order("orden", { ascending: true });
+      if (!error && data && data.length) {
+        products = data;
+        renderProducts();
+        return;
+      }
     }
+  } catch (e) {
+    console.warn("No se pudo cargar desde Supabase, usando catálogo local:", e);
   }
   products = FALLBACK_PRODUCTS;
   renderProducts();
@@ -58,49 +63,95 @@ function renderProducts() {
     return;
   }
 
-  grid.innerHTML = list.map(p => {
-    const qty = cart[p.id]?.qty || 0;
-    return `
+  grid.innerHTML = list.map(p => `
     <div class="card">
-      <div class="card-media">${p.imagen_emoji || "🍧"}</div>
+      <div class="card-media"><img src="${p.imagen_url}" alt="${p.nombre}" loading="lazy"></div>
       <div class="card-body">
         <h3>${p.nombre}</h3>
         <p>${p.descripcion || ""}</p>
         <div class="card-footer">
           <span class="price">Bs ${Number(p.precio).toFixed(0)}</span>
-          <div class="qty-row">
-            <button class="qty-btn" onclick="changeQty('${p.id}', -1)">−</button>
-            <span class="qty-num" id="qty-${p.id}">${qty}</span>
-            <button class="qty-btn" onclick="changeQty('${p.id}', 1)">+</button>
-          </div>
+          <button class="btn btn-primary btn-sm" onclick="addToCart('${p.id}')">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5.1-1.3A10 10 0 1 0 12 2Zm5.7 14.2c-.2.6-1.4 1.2-1.9 1.3-.5.1-1.1.1-1.8-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5.1-4.5-.1-.2-1.2-1.6-1.2-3.1 0-1.5.8-2.2 1-2.5.3-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5.2.6.8 1.9.8 2 .1.2.1.4 0 .6-.1.2-.1.3-.3.5l-.4.5c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1.1 2.2 1.4 2.5 1.6.3.2.5.1.6-.1l1-1.1c.2-.3.4-.2.7-.1l1.8.9c.2.1.4.2.5.3.1.2.1.9-.1 1.5Z"/></svg>
+            Pedir ahora
+          </button>
         </div>
       </div>
-    </div>`;
-  }).join("");
+    </div>
+  `).join("");
+}
+
+function addToCart(id) {
+  const product = products.find(p => String(p.id) === String(id));
+  if (!product) return;
+  const current = cart[id]?.qty || 0;
+  cart[id] = { ...product, qty: current + 1 };
+  updateCartUI();
+  showToast(`${product.nombre} agregado`);
+  openCart();
 }
 
 function changeQty(id, delta) {
-  const product = products.find(p => p.id === id);
-  if (!product) return;
   const current = cart[id]?.qty || 0;
   const next = Math.max(0, current + delta);
   if (next === 0) {
     delete cart[id];
   } else {
-    cart[id] = { ...product, qty: next };
+    cart[id].qty = next;
   }
-  const el = document.getElementById(`qty-${id}`);
-  if (el) el.textContent = next;
-  updateCartBar();
+  updateCartUI();
 }
 
-function updateCartBar() {
-  const items = Object.values(cart);
-  const count = items.reduce((s, i) => s + i.qty, 0);
-  const total = items.reduce((s, i) => s + i.qty * Number(i.precio), 0);
-  document.getElementById("cartCount").textContent = count;
+// ---------- Carrito lateral ----------
+const cartPanel = document.getElementById("cartPanel");
+const cartOverlay = document.getElementById("cartOverlay");
+
+function openCart() {
+  cartPanel.classList.add("show");
+  cartOverlay.classList.add("show");
+}
+function closeCart() {
+  cartPanel.classList.remove("show");
+  cartOverlay.classList.remove("show");
+}
+document.getElementById("cartToggle").addEventListener("click", openCart);
+document.getElementById("cartClose").addEventListener("click", closeCart);
+cartOverlay.addEventListener("click", closeCart);
+
+function updateCartUI() {
+  const items = Object.entries(cart);
+  const count = items.reduce((s, [, i]) => s + i.qty, 0);
+  const total = items.reduce((s, [, i]) => s + i.qty * Number(i.precio), 0);
+
+  const badge = document.getElementById("cartBadge");
+  badge.textContent = count;
+  badge.style.display = count > 0 ? "flex" : "none";
+
+  const itemsEl = document.getElementById("cartItems");
+  const footEl = document.getElementById("cartFoot");
+
+  if (!items.length) {
+    itemsEl.innerHTML = `<div class="cart-empty">Todavía no agregaste nada 🍨</div>`;
+    footEl.style.display = "none";
+    return;
+  }
+
+  itemsEl.innerHTML = items.map(([id, i]) => `
+    <div class="cart-item">
+      <div class="cart-item-info">
+        <b>${i.nombre}</b>
+        <span>Bs ${i.precio} c/u</span>
+      </div>
+      <div class="qty-row">
+        <button class="qty-btn" onclick="changeQty('${id}', -1)">−</button>
+        <span class="qty-num">${i.qty}</span>
+        <button class="qty-btn" onclick="changeQty('${id}', 1)">+</button>
+      </div>
+    </div>
+  `).join("");
+
+  footEl.style.display = "block";
   document.getElementById("cartTotal").textContent = `Bs ${total.toFixed(0)}`;
-  document.getElementById("cartBar").classList.toggle("show", count > 0);
 }
 
 // ---------- Filtros ----------
@@ -118,21 +169,10 @@ const modalOverlay = document.getElementById("modalOverlay");
 
 document.getElementById("openCheckout").addEventListener("click", () => {
   if (!Object.keys(cart).length) return;
-  renderModalSummary();
   modalOverlay.classList.add("show");
 });
 document.getElementById("closeModal").addEventListener("click", () => modalOverlay.classList.remove("show"));
 modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove("show"); });
-
-function renderModalSummary() {
-  const items = Object.values(cart);
-  const total = items.reduce((s, i) => s + i.qty * Number(i.precio), 0);
-  const rows = items.map(i => `
-    <div class="modal-summary-row"><span>${i.qty}x ${i.nombre}</span><span>Bs ${(i.qty * i.precio).toFixed(0)}</span></div>
-  `).join("");
-  document.getElementById("modalSummary").innerHTML = rows + `
-    <div class="modal-summary-row total"><span>Total</span><span>Bs ${total.toFixed(0)}</span></div>`;
-}
 
 // ---------- Enviar pedido ----------
 document.getElementById("checkoutForm").addEventListener("submit", async (e) => {
@@ -145,7 +185,7 @@ document.getElementById("checkoutForm").addEventListener("submit", async (e) => 
 
   if (!items.length) return;
 
-  // Guardar pedido en Supabase (si está conectado)
+  // Guardar pedido en Supabase (si está conectado) — nunca bloquea el flujo si falla
   if (supabase) {
     try {
       await supabase.from("pedidos").insert({
@@ -161,7 +201,6 @@ document.getElementById("checkoutForm").addEventListener("submit", async (e) => 
     }
   }
 
-  // Armar mensaje de WhatsApp
   const lineas = items.map(i => `• ${i.qty}x ${i.nombre} — Bs ${(i.qty * i.precio).toFixed(0)}`).join("%0A");
   const mensaje =
     `Hola Chanti! 👋 Quiero hacer este pedido:%0A%0A${lineas}%0A%0A` +
@@ -172,9 +211,9 @@ document.getElementById("checkoutForm").addEventListener("submit", async (e) => 
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${mensaje}`, "_blank");
 
   cart = {};
-  updateCartBar();
-  renderProducts();
+  updateCartUI();
   modalOverlay.classList.remove("show");
+  closeCart();
   showToast("¡Pedido enviado! Revisá WhatsApp para confirmar.");
 });
 
@@ -183,7 +222,8 @@ function showToast(msg) {
   const toast = document.getElementById("toast");
   toast.textContent = msg;
   toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 3200);
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
 }
 
 // ---------- Estado abierto/cerrado (martes y jueves, 1pm-8pm hora Bolivia) ----------
@@ -191,9 +231,7 @@ function updateStatus() {
   const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/La_Paz" }));
   const day = now.getDay(); // 2 = martes, 4 = jueves
   const hour = now.getHours() + now.getMinutes() / 60;
-  const isOpenDay = day === 2 || day === 4;
-  const isOpenHour = hour >= 13 && hour < 20;
-  const isOpen = isOpenDay && isOpenHour;
+  const isOpen = (day === 2 || day === 4) && hour >= 13 && hour < 20;
 
   const dot = document.getElementById("statusDot");
   const text = document.getElementById("statusText");
